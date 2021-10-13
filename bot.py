@@ -1,3 +1,5 @@
+import traceback
+
 import discord
 import logging
 import local_settings
@@ -11,13 +13,14 @@ import aiofiles
 client = discord.Client()
 logging.basicConfig(level=logging.WARNING)
 
-intro_message = "Hi there! \nYou've received a chat request from a Tabletop Creator's Guild user."
+intro_message = "Hi there! \nYou've received a chat request from a Tabletop Creators Guild user."
 emojis = ["<:greenTick:879887568932589578>", "<:redTick:879887568882237510>", "<:greyTick:879887568651558953>"]  # , "📢"
 
 
 @client.event
 async def on_ready():
     print('We have logged in as {0.user}'.format(client))
+    await client.change_presence(activity=discord.Activity(name="Tabletop Creators Guild", type=3))
 
 
 @client.event
@@ -100,6 +103,8 @@ async def on_message(message):
 
 @client.event
 async def on_raw_reaction_add(payload):
+    # TODO Add a date check to the if as well, to make sure very old messages won't create new invites.
+    # Something like anything before 15 Aug 2021 won't do anything.
     if payload.user_id == local_settings.jeeves_id:
         return
 
@@ -107,7 +112,7 @@ async def on_raw_reaction_add(payload):
     message = await client.get_partial_messageable(payload.channel_id).fetch_message(payload.message_id)
 
     # User private messages
-    if message.embeds and message.embeds[0].description == intro_message:
+    if message.embeds and message.embeds[0].description == intro_message:  # TODO Change back to intro_message after testing
         original_message_id = int(re.sub(f"Message ID: ", "", message.embeds[0].footer.text, count=1))
         original_message = await client.get_channel(local_settings.guild_channel_id).fetch_message(original_message_id)
 
@@ -120,13 +125,19 @@ async def on_raw_reaction_add(payload):
 
             # TODO Need to find another way of checking if there's a thread. Currently if it's archived, it becomes
             #  NoneType and this check throws an error.
-            if type(client.get_channel(original_message_id)) != discord.threads.Thread:
-                print(type(client.get_channel(original_message_id)))
-                original_thread = await original_message.create_thread(name="Chat request information", auto_archive_duration=60)
+            print(isinstance(client.get_channel(payload.channel_id), discord.threads.Thread))
+            print(type(client.get_channel(payload.channel_id)))
+            if not isinstance(client.get_channel(original_message_id), discord.threads.Thread):
+                try:
+                    original_thread = await original_message.create_thread(name="Chat request information", auto_archive_duration=60)
+                # If a thread is already in place.
+                except discord.errors.HTTPException:
+                    print("EXCEPT")
+                    original_thread = client.get_channel(original_message_id)
             else:
                 original_thread = client.get_channel(original_message_id)
 
-            sent_thread = await original_thread.send(embed=embed_thread)
+            await original_thread.send(embed=embed_thread)
 
         elif payload.emoji.name == "redTick" and payload.emoji.id == 879887568882237510:
             await original_message.add_reaction("<:redTick:879887568882237510>")
@@ -139,21 +150,26 @@ async def on_raw_reaction_add(payload):
             if deny_reason:
                 embed_thread.add_field(name="Reason", value=deny_reason, inline=False)
 
-            if type(client.get_channel(original_message_id)) != discord.threads.Thread:
-                original_thread = await original_message.create_thread(name="Chat request information")
+            if not isinstance(client.get_channel(original_message_id), discord.threads.Thread):
+                try:
+                    original_thread = await original_message.create_thread(name="Chat request information", auto_archive_duration=60)
+                # If a thread is already in place.
+                except discord.errors.HTTPException:
+                    print("EXCEPT")
+                    original_thread = client.get_channel(original_message_id)
             else:
                 original_thread = client.get_channel(original_message_id)
 
-            sent_thread = await original_thread.send(embed=embed_thread)
+            await original_thread.send(embed=embed_thread)
 
-            await partial_message.send("The chat request has been declined. If you need to report it, please contact any of the mods on the Tabletop Creator's Guild server.")
+            await partial_message.send("The chat request has been declined. If you need to report it, please contact any of the mods on the Tabletop Creators Guild server.")
 
         elif payload.emoji.name == "greyTick" and payload.emoji.id == 879887568651558953:
             for emoji in emojis:
                 # Enable to also remove all reactions on the original sender's message.
                 # await original_message.remove_reaction(emoji, message.author)
                 await message.remove_reaction(emoji, message.author)
-            await partial_message.send("The chat request will be ignored. If you need to report it, please contact any of the mods on the Tabletop Creator's Guild server.")
+            await partial_message.send("The chat request will be ignored. If you need to report it, please contact any of the mods on the Tabletop Creators Guild server.")
 
         # Not currently in use. Reports are done manually.
         elif payload.emoji.name == "📢":
